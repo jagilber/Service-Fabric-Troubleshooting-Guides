@@ -560,12 +560,16 @@ public class dotNet
 
 try
 {
-    Add-Type $code
+    if(![dotnet])
+    {
+        Add-Type $code
+    }
+    
     main
 }
-catch [Exception]
+catch
 {
-    write-host "main exception : $_`r`n$($error | out-string)" -foregroundColor red
+    write-host "main exception: $($error | out-string)"   
     $error.Clear()
 }
 finally
