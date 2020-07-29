@@ -563,9 +563,9 @@ try
     Add-Type $code
     main
 }
-catch
+catch [Exception]
 {
-    write-host "main exception: $($error | out-string)"   
+    write-host "main exception : $_`r`n$($error | out-string)" -foregroundColor red
     $error.Clear()
 }
 finally
