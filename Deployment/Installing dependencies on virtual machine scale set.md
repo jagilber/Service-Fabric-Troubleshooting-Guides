@@ -3,10 +3,10 @@
 >[Installing dependencies during cluster deployment](#Installing-dependencies-during-cluster-deployment)  
 >[Installing dependencies after cluster deployment](#Installing-dependencies-after-cluster-deployment)  
 >[Modify ARM Template to Add Custom Script Extension](#Modify-ARM-Template-to-Add-Custom-Script-Extension)  
->[Modify ARM Template to Add extension sequencing on Service Fabric Extension](#Modify-ARM-Template-to-Add-extension-sequencing-on-Service-Fabric-Extension) 
->[Example](#Example)
->>[template.json](#template-json)  
->>[parameters.json](#parameters-json)
+>[Modify ARM Template to Add extension sequencing on Service Fabric Extension](#Modify-ARM-Template-to-Add-extension-sequencing-on-Service-Fabric-Extension)  
+>[Example](#Example)  
+>>[template.json](#template.json)  
+>>[parameters.json](#parameters.json)  
 
 ## Overview  
 
