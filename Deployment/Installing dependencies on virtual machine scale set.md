@@ -5,8 +5,8 @@
 >[Modify ARM Template to Add Custom Script Extension](#Modify-ARM-Template-to-Add-Custom-Script-Extension)  
 >[Modify ARM Template to Add extension sequencing on Service Fabric Extension](#Modify-ARM-Template-to-Add-extension-sequencing-on-Service-Fabric-Extension)  
 >[Example](#Example)  
->>[template.json](#template.json)  
->>[parameters.json](#parameters.json)  
+>>[template.json](#templatejson)  
+>>[parameters.json](#parametersjson)  
 
 ## Overview  
 
