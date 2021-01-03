@@ -493,7 +493,7 @@ Microsoft.VisualStudio.WindowsAzure.RemoteDebugger.Connector.exe Information: 0 
 
 ### Timeout  
 
-- There is a 15 minute hard timeout that will fail action in Visual Studio. The action may still succeed. Multiple factors can affect the total time that it takes to complete 'enable debugging'. Some of which are number of nodes and node types.  
+- There are non-configurable timeouts that will fail action in Visual Studio. The action may still succeed. Multiple factors can affect the total time that it takes to complete 'enable debugging'. Some of which are number of nodes and node types.  
 
 #### Timeout Mitigation
 
