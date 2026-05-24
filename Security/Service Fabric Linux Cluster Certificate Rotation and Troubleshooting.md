@@ -46,7 +46,7 @@ Example:
 > Waagent also creates `.pem` files alongside the `.crt`/`.prv` files in `/var/lib/waagent/`. You may see files like `{THUMBPRINT}.pem` in addition to the `.crt` and `.prv` files.
 
 > [!IMPORTANT]
-> When delivered via VMSS `osProfile/secrets`, waagent uses `.prv` extension for private keys (not `.key`). When using the Key Vault VM extension or manual placement, certificates follow the standard `.crt`/`.key` or single `.pem` format as described in [MS Learn](https://learn.microsoft.com/azure/service-fabric/service-fabric-configure-certificates-linux). The SF bootstrap agent copies/links certs from `/var/lib/waagent/` into `/var/lib/sfcerts/` for the SF runtime.
+> When delivered via VMSS `osProfile/secrets`, waagent uses `.prv` extension for private keys (not `.key`). When using the Key Vault VM extension or manual placement, certificates follow the standard `.crt`/`.key` or single `.pem` format as described in [MS Learn](https://learn.microsoft.com/azure/service-fabric/service-fabric-configure-certificates-linux). The SF runtime consumes the certs delivered by waagent; the exact mechanism (whether the bootstrap agent stages files into `/var/lib/sfcerts/`, hardlinks, or reads in place) varies by SF version. When diagnosing, inspect both `/var/lib/waagent/` and `/var/lib/sfcerts/`.
 
 ### Service Fabric Runtime Certificates
 
@@ -329,10 +329,10 @@ Add `thumbprintSecondary` to the `Microsoft.ServiceFabric/clusters` resource. Na
 }
 ```
 
-This triggers SFRP to generate an updated ClusterManifest and initiate a cluster upgrade. Wait for `provisioningState` to reach `Succeeded`. This step can take up to an hour.
+This triggers SFRP to generate an updated ClusterManifest and initiate a cluster upgrade. Wait for `provisioningState` to reach `Succeeded`. A single ARM PATCH against the cluster resource typically produces **two** back-to-back ClusterManifest upgrades (e.g. config version `N` -> `N+1` -> `N+2`); cluster-side roll-out continues for ~15 minutes per upgrade after ARM returns `Succeeded`. On a multi-node Linux cluster the full settle window is commonly 30 minutes and can be much longer with strict app-health gates.
 
-> [!IMPORTANT]
-> SFRP does **not** automatically update the VMSS extension settings when you update the SF cluster ARM resource. Steps 4 and 5 are independent operations. SFRP only updates the ClusterManifest (which is rolled out via cluster upgrade). You must still manually update the VMSS extension settings (Step 4) to keep them in sync. The on-node extension `.settings` file is only updated when the VMSS instance is reimaged or when a new incarnation triggers the extension.
+> [!WARNING]
+> **SFRP does NOT automatically update the VMSS extension settings when you update the SF cluster ARM resource, and updating the VMSS resource does NOT update the SF cluster manifest.** Steps 4 and 5 are independent and must both be performed in order. Waagent removes the old certs from disk on the new incarnation, but the ClusterManifest still references them, which can cause the bootstrap agent to loop. The on-node extension `.settings` file is updated when a new incarnation triggers the extension (or on VMSS reimage).
 
 ### Step 6 - Swap and Remove Old Certificate
 
@@ -564,6 +564,14 @@ If the cluster is down because of cert issues and cannot be recovered through no
 > [!IMPORTANT]
 > The preferred resolution is always to update the `Microsoft.ServiceFabric/clusters` ARM resource with the correct thumbprint(s), which triggers SFRP to generate the correct ClusterManifest. If the ARM update cannot be applied (e.g., cluster is unreachable, SFRP rejects the update), contact Azure Support to have the SFRP backend record corrected. The options below are emergency workarounds only.
 
+> [!IMPORTANT]
+> **When nodes are already in cert deadlock, the on-node manifest repair (Option 2) is the required first stage of recovery.** ARM convergence (updating `Microsoft.ServiceFabric/clusters` and letting SFRP roll out a new ClusterManifest) requires working inter-node TLS, which is exactly what is broken by the manifest/cert mismatch. The recovery sequence is therefore:
+>
+> 1. **Stage 1 - on-node repair (Option 2):** restore inter-node communication on each affected node by rewriting the stale thumbprints in `ClusterManifest.current.xml` and `Fabric.Config.*/Settings.xml`. This is what allows the cluster to come back up.
+> 2. **Stage 2 - ARM convergence:** once nodes are up and cluster is healthy, update the SF cluster ARM resource (and VMSS extension settings) so SFRP regenerates the manifest and the on-node edits are not overwritten by a stale cluster upgrade.
+>
+> Option 1 (manual KV cert placement) only helps when the missing artifact is the **cert file itself**, not when the manifest references the wrong thumbprint. The customer-validated path for the latter case (which is the more common failure) is Option 2.
+
 ### Option 1: Manual Certificate Placement (Emergency)
 
 > [!WARNING]
@@ -605,11 +613,15 @@ If the cluster is down because of cert issues and cannot be recovered through no
    rm -f /tmp/cert.pem
    ```
 
-4. **Restart the Azure Linux Agent to trigger the bootstrap agent:**
+4. **Restart the bootstrap agent to pick up the new cert files:**
 
    ```bash
-   sudo systemctl restart walinuxagent
+   sudo systemctl restart servicefabricnodebootstrapagent
+   sudo systemctl status servicefabricnodebootstrapagent --no-pager
    ```
+
+   > [!NOTE]
+   > Prefer restarting `servicefabricnodebootstrapagent` over restarting `walinuxagent`. Restarting waagent re-downloads the full goal state and re-applies all VM extensions; if VMSS `osProfile/secrets` still references the wrong cert set, waagent will **re-remove** the file you just placed.
 
 ### Option 2: Update ClusterManifest Manually (Emergency)
 
@@ -618,72 +630,109 @@ If the cluster is down because of cert issues and cannot be recovered through no
 
 1. **SSH** to each node
 
-2. **Stop SF processes and the bootstrap agent:**
+2. **Stop the bootstrap agent, then SF, then SIGKILL FabricHost:**
+
+   > [!WARNING]
+   > On SF Linux, `FabricHost` is supervised by `servicefabric.service`, which is in turn launched by `servicefabricnodebootstrapagent.service`. If you only stop one service, **`FabricHost` will be respawned within seconds** and race the `sed` of `ClusterManifest.current.xml` - either wiping the repair or causing the next restart to read a half-written manifest. Both services must be stopped and `FabricHost` must be SIGKILL'd before any manifest edit. Verify with `pgrep -af FabricHost` (must return empty) before continuing.
+
+   ```bash
+   sudo systemctl stop servicefabricnodebootstrapagent
+   sudo systemctl stop servicefabric
+   sudo pkill -9 -f FabricHost || true
+   sleep 5
+   pgrep -af FabricHost && { echo "STILL RUNNING - investigate"; exit 1; } || echo "FabricHost not running"
+   ```
+
+   Confirm `FabricHost not running` before proceeding.
+
+3. **Edit ClusterManifest to replace old thumbprints with new (validated scoped pattern):**
+
+   Do **not** run a broad `find -exec sed` against the whole data root. The validated pattern is:
+   1. List the exact files containing the stale thumbprint into `/tmp/stale-cert-files.txt`,
+   2. Sanity-check the list contains only `ClusterManifest.*.xml` and `Fabric.Config.*/Settings.xml`,
+   3. Iterate `sed` over the saved list,
+   4. Re-grep with the same scope and confirm zero remaining matches.
+
+   Set thumbprint variables (uppercase, no separators):
+
+   ```bash
+   OLD1="OLD_THUMBPRINT_1"
+   NEW1="NEW_THUMBPRINT_1"
+   # Optionally OLD2/NEW2 for a paired rotation
+
+   DATAROOT="/mnt/sfroot"
+   [ ! -d "$DATAROOT" ] && DATAROOT="/mnt/resource/sfroot"
+
+   # Also edit the extension staging manifest if it still references the old thumbprint
+   sudo cp /var/log/azure/Microsoft.Azure.ServiceFabric.ServiceFabricLinuxNode/TempClusterManifest.xml \
+           /var/log/azure/Microsoft.Azure.ServiceFabric.ServiceFabricLinuxNode/TempClusterManifest.xml.bak 2>/dev/null || true
+   ```
+
+   **Step 3a - Capture stale-reference file list (scoped grep):**
+
+   ```bash
+   sudo grep -RIl \
+     --include='*.xml' --include='*.json' --include='*.cfg' \
+     --include='*.config' --include='*.ini' --include='*.settings' \
+     --exclude-dir=work --exclude-dir=log --exclude-dir=Traces \
+     --exclude-dir=CrashDumps --exclude-dir=Backup --exclude-dir=ImageBuilderProxy \
+     -e "$OLD1" \
+     "$DATAROOT" 2>/dev/null \
+     | sort | sudo tee /tmp/stale-cert-files.txt
+
+   wc -l /tmp/stale-cert-files.txt
+   ```
+
+   The list must contain only paths matching `ClusterManifest.*.xml` or `Fabric.Config.*/Settings.xml`. If anything else appears, **stop** and investigate before editing.
 
    > [!NOTE]
-   > On modern SF Linux clusters, there are two systemd services: `servicefabric.service` (starts FabricHost via `/opt/microsoft/servicefabric/bin/starthost.sh`) and `servicefabricnodebootstrapagent.service` (the bootstrap agent). Use `systemctl` to stop/start them. On older clusters where these systemd services do not exist, fall back to killing processes directly.
+   > On most nodes `ClusterManifest.current.xml` and `ClusterManifest.1.xml` (or `ClusterManifest.{N}.xml`) resolve to the same file via hardlink or symlink. Editing one is reflected in the other; the scoped grep above will still correctly enumerate every path that references the stale thumbprint.
+
+   **Step 3b - Scoped sed against the saved file list:**
 
    ```bash
-   # Preferred: use systemctl (modern SF Linux clusters)
-   sudo systemctl stop servicefabric
-   sudo systemctl stop servicefabricnodebootstrapagent
+   test -s /tmp/stale-cert-files.txt || { echo "ABORT: empty file list"; exit 1; }
 
-   # Fallback: kill processes directly (older clusters without systemd units)
-   # sudo pkill -f sfbootstrapagent || true
-   # sudo pkill -f FabricHost || true
-
-   # Wait for processes to exit
-   sleep 5
-   # Verify they are stopped
-   ps aux | grep -E "sfbootstrapagent|FabricHost|Fabric.exe" | grep -v grep
+   while read -r f; do
+     sudo cp "$f" "$f.bak.$(date +%Y%m%d%H%M%S)"
+     sudo sed -i -e "s/$OLD1/$NEW1/g" "$f"
+   done < /tmp/stale-cert-files.txt
    ```
 
-3. **Edit ClusterManifest to replace old thumbprints with new:**
+   **Step 3c - Verify zero remaining old-thumbprint references:**
 
    ```bash
-   sudo cp /var/log/azure/Microsoft.Azure.ServiceFabric.ServiceFabricLinuxNode/TempClusterManifest.xml \
-           /var/log/azure/Microsoft.Azure.ServiceFabric.ServiceFabricLinuxNode/TempClusterManifest.xml.bak
-
-   sudo sed -i 's/OLD_THUMBPRINT/NEW_THUMBPRINT/g' \
-       /var/log/azure/Microsoft.Azure.ServiceFabric.ServiceFabricLinuxNode/TempClusterManifest.xml
+   sudo grep -RIn \
+     --include='*.xml' --include='*.json' --include='*.cfg' \
+     --include='*.config' --include='*.ini' --include='*.settings' \
+     --exclude-dir=work --exclude-dir=log --exclude-dir=Traces \
+     --exclude-dir=CrashDumps --exclude-dir=Backup --exclude-dir=ImageBuilderProxy \
+     -e "$OLD1" \
+     "$DATAROOT" 2>/dev/null
    ```
 
-4. **Also update the node-level runtime manifest and settings:**
+   Expected output: empty. If matches remain, re-run Step 3b against a fresh `/tmp/stale-cert-files.txt`; do not proceed to restart until Step 3c is clean.
+
+4. **Restart the bootstrap agent only:**
 
    ```bash
-   # Find the data root
-   # Ubuntu default: /mnt/sfroot
-   # RedHat default: /mnt/resource/sfroot
-   DATAROOT="/mnt/sfroot"
-   if [ ! -d "$DATAROOT" ]; then
-       DATAROOT="/mnt/resource/sfroot"
-   fi
-
-   # Update ClusterManifest.current.xml in each node folder
-   find "$DATAROOT" -name "ClusterManifest.current.xml" -exec sudo cp {} {}.bak \;
-   find "$DATAROOT" -name "ClusterManifest.current.xml" -exec sudo sed -i 's/OLD_THUMBPRINT/NEW_THUMBPRINT/g' {} \;
-
-   # Update InfrastructureManifest.xml
-   find "$DATAROOT" -name "InfrastructureManifest.xml" -exec sudo sed -i 's/OLD_THUMBPRINT/NEW_THUMBPRINT/g' {} \;
-
-   # Update Settings.xml in the current Fabric.Config directory
-   find "$DATAROOT" -path "*/Fabric/Fabric.Config.*/Settings.xml" -exec sudo sed -i 's/OLD_THUMBPRINT/NEW_THUMBPRINT/g' {} \;
+   sudo systemctl start servicefabricnodebootstrapagent
+   sudo systemctl status servicefabricnodebootstrapagent --no-pager
    ```
 
-5. **Restart SF processes:**
+   `servicefabricnodebootstrapagent` will start `servicefabric.service`, which spawns `FabricHost`. **Start the bootstrap agent only** - do not `systemctl start servicefabric` directly, and do not `systemctl restart walinuxagent` (waagent re-applies VMSS goal state, which can re-remove the cert files if `osProfile/secrets` is still mismatched).
+
+   Allow a few minutes for the node to bootstrap and rejoin. Validate:
 
    ```bash
-   # Preferred: use systemctl to restart SF services (modern clusters)
-   sudo systemctl restart servicefabricnodebootstrapagent
-   sudo systemctl restart servicefabric
-
-   # Alternative: restart waagent which will re-trigger the bootstrap agent
-   # sudo systemctl restart walinuxagent
+   sudo systemctl is-active servicefabricnodebootstrapagent
+   sudo systemctl is-active servicefabric
+   pgrep -af FabricHost
    ```
 
-   On modern clusters, restarting the systemd services directly is faster and more predictable. Restarting waagent triggers the SF extension, which starts the bootstrap agent, which starts FabricHost.
+   All three must succeed (`active`, `active`, FabricHost PID present). If the bootstrap agent fails to stay active, capture `sudo journalctl -u servicefabricnodebootstrapagent --no-pager -n 200` before retrying.
 
-6. **Repeat on all nodes**, starting with seed nodes.
+5. **Repeat on all nodes**, starting with seed nodes. Wait for Service Fabric Explorer to return to healthy between nodes.
 
 ### After Emergency Recovery: Update SFRP
 
