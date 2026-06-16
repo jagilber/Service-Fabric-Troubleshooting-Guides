@@ -531,3 +531,5 @@ Missing Client Authentication EKU should NOT cause Service Fabric authentication
 - [Add or remove certificates for a Service Fabric cluster in Azure](https://learn.microsoft.com/azure/service-fabric/service-fabric-cluster-security-update-certs-azure) - certificate updates
 - [Convert cluster certificates from thumbprint to common name](https://learn.microsoft.com/azure/service-fabric/service-fabric-cluster-change-cert-thumbprint-to-cn) - migration guidance and CA requirements for common name
 - [Deploy a Service Fabric cluster using certificate common name](https://learn.microsoft.com/azure/service-fabric/service-fabric-create-cluster-using-cert-cn) - common name deployment requirements (CA-issued certificates)
+- [Client Authentication EKU Removal](https://github.com/microsoft/service-fabric/blob/master/release_notes/Resources/ClientEKURemoval.md) - official Service Fabric product group documentation
+- [Client Authentication EKU Removal](https://github.com/microsoft/service-fabric/blob/master/release_notes/Resources/ClientEKURemoval.md) - official Service Fabric product group documentation
