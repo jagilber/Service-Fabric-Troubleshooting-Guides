@@ -9,7 +9,7 @@ This contains the Security related TSG's surfaced in the Azure Portal during sup
 * [Create a New Self Signed Certificate](./Create%20a%20New%20Self%20Signed%20Certificate.md)
 
 ### **Linux Certificate Management**
-* [Service Fabric Linux Cluster Certificate Rotation and Troubleshooting](./Service%20Fabric%20Linux%20Cluster%20Certificate%20Rotation%20and%20Troubleshooting.md)
+* [Service Fabric Linux Cluster Certificate Rotation and Troubleshooting](./Service-Fabric-Linux-Cluster-Certificate-Rotation-and-Troubleshooting.md)
 
 ### **Couldn't add or renew certificate**
 * [Add-AzureRmServiceFabricClusterCertificate throws error TwoCertificatesToTwoCertificatesNotAllowed](./Add-AzureRmServiceFabricClusterCertificate%20throws%20error%20TwoCertificatesToTwoCertificatesNotAllowed.md)
