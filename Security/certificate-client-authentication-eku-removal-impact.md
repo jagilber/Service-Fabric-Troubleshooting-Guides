@@ -1,5 +1,8 @@
 # Service Fabric Certificate Client Authentication EKU Removal Impact
 
+> [!NOTE]
+> Official Service Fabric product group guidance: [Client Authentication EKU Removal](https://github.com/microsoft/service-fabric/blob/master/release_notes/Resources/ClientEKURemoval.md).
+
 ## Problem Description
 
 Public certificate authorities (Microsoft, DigiCert) are removing the Client Authentication EKU (OID: 1.3.6.1.5.5.7.3.2) from public TLS certificates. Service Fabric's server-side validation does not check or require this EKU (see [SF Server-Side EKU Behavior](#sf-server-side-eku-behavior)). The issue is entirely **client-side**: Windows SChannel refuses to present certificates without Client Auth EKU during the TLS handshake, so the certificate never reaches the server. This affects browsers, .NET `HttpClientHandler`, and any client that relies on SChannel for client certificate selection.
@@ -7,7 +10,7 @@ Public certificate authorities (Microsoft, DigiCert) are removing the Client Aut
 **Primary Impact:**
 
 - **Browser-based SFX access**: Users cannot select client certificates in browsers
-- **Clusters with REST clients connecting to http gateway port 19080**: Client certificate authentication fails when client uses Windows SChannel (e.g., .NET `HttpClientHandler`, APIM)
+- **Clusters with REST clients connecting to HTTP gateway port 19080**: Client certificate authentication fails when client uses Windows SChannel (e.g., .NET `HttpClientHandler`, APIM)
 - **Clusters with Managed Identity Token Service**: Managed Identity authentication failures (HTTP 403)
 
 **What Still Works (TCP-based connections - port 19000):**
@@ -29,12 +32,12 @@ Public certificate authorities (Microsoft, DigiCert) are removing the Client Aut
 - .NET `HttpClientHandler.ClientCertificates` (Windows SChannel filters cert)
 - PowerShell 5.1 `Invoke-WebRequest` / `Invoke-RestMethod` (uses .NET Framework HttpClientHandler)
 - PowerShell 7 (pwsh) `Invoke-RestMethod` / `Invoke-WebRequest` with `-Certificate` parameter on **.NET 7 and earlier** (uses `HttpClientHandler.ClientCertificates` which goes through SChannel EKU filtering)
-
-> [!NOTE]
-> **PowerShell 7 on .NET 8+:** PowerShell 7.4+ running on .NET 8+ internally uses `SocketsHttpHandler` for `Invoke-WebRequest` and `Invoke-RestMethod`, which bypasses SChannel EKU filtering. Server-only EKU certificates **work** in PS 7.4+ on .NET 8+. See [Client Compatibility Matrix](#client-compatibility-matrix) for verified results.
 - `Connect-SFCluster` (SF HTTP PowerShell module)
 - Azure API Management (APIM) Service Fabric backend (uses [`Microsoft.ServiceFabric.Client.Http`](https://github.com/microsoft/service-fabric-client-dotnet) with `HttpClientHandler.ClientCertificates`)
 - MITS (Managed Identity Token Service)
+
+> [!NOTE]
+> **PowerShell 7 on .NET 8+:** PowerShell 7.4+ running on .NET 8+ internally uses `SocketsHttpHandler` for `Invoke-WebRequest` and `Invoke-RestMethod`, which bypasses SChannel EKU filtering. Server-only EKU certificates **work** in PS 7.4+ on .NET 8+. See [Client Compatibility Matrix](#client-compatibility-matrix) for verified results.
 
 ### Timeline
 
@@ -76,7 +79,7 @@ This bidirectional authentication provides stronger security for sensitive opera
 
 **Why Client Authentication EKU is Required:**
 
-- MITS presents the cluster certificate AS a **client certificate** when querying http gateway (REST)
+- MITS presents the cluster certificate as a **client certificate** when querying HTTP gateway (REST)
 - Windows SChannel (the TLS provider used by MITS's .NET HTTP client) checks for Client Authentication EKU (1.3.6.1.5.5.7.3.2) during client certificate selection
 - Without this EKU, SChannel silently drops the certificate during the TLS handshake -- the certificate is never sent to the server
 - The server receives no client certificate and returns HTTP 403 "Client certificate required"
@@ -531,5 +534,4 @@ Missing Client Authentication EKU should NOT cause Service Fabric authentication
 - [Add or remove certificates for a Service Fabric cluster in Azure](https://learn.microsoft.com/azure/service-fabric/service-fabric-cluster-security-update-certs-azure) - certificate updates
 - [Convert cluster certificates from thumbprint to common name](https://learn.microsoft.com/azure/service-fabric/service-fabric-cluster-change-cert-thumbprint-to-cn) - migration guidance and CA requirements for common name
 - [Deploy a Service Fabric cluster using certificate common name](https://learn.microsoft.com/azure/service-fabric/service-fabric-create-cluster-using-cert-cn) - common name deployment requirements (CA-issued certificates)
-- [Client Authentication EKU Removal](https://github.com/microsoft/service-fabric/blob/master/release_notes/Resources/ClientEKURemoval.md) - official Service Fabric product group documentation
-- [Client Authentication EKU Removal](https://github.com/microsoft/service-fabric/blob/master/release_notes/Resources/ClientEKURemoval.md) - official Service Fabric product group documentation
+- [Client Authentication EKU Removal](https://github.com/microsoft/service-fabric/blob/master/release_notes/Resources/ClientEKURemoval.md) - Service Fabric product group documentation
