@@ -157,12 +157,20 @@ retry/wait while the first (failing) instance holds the bootstrap mutex:
 Mutex already exists; waiting up to 00:03:00 for another instance of this process to exit
 ```
 
-**Guest agent generic logs (Kusto / platform)**
+**Guest agent logs (on the VM)**
 
 The Windows guest agent logs the Service Fabric extension failure with a message
-indicating a missing data-drive path, for example when querying
-`GuestAgentGenericLogs` filtered to the affected cluster's subscription /
-resource group and `EventName contains 'ServiceFabric'`.
+indicating a missing data-drive path. On the affected node, the relevant logs are:
+
+- Guest agent log: `C:\WindowsAzure\Logs\WaAppAgent.log`
+- Service Fabric extension handler logs:
+  `C:\WindowsAzure\Logs\Plugins\Microsoft.Azure.ServiceFabric.ServiceFabricNode\<version>\`
+- Extension status (`.status` files):
+  `C:\Packages\Plugins\Microsoft.Azure.ServiceFabric.ServiceFabricNode\<version>\Status\`
+
+The same events are also surfaced in platform telemetry (for example the
+`GuestAgentGenericLogs` table) filtered to the affected cluster's subscription /
+resource group with `EventName contains 'ServiceFabric'`.
 
 **Fabric / data-path driver (post-bootstrap)**
 
