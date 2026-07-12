@@ -44,3 +44,4 @@ This contains the Security related TSG's surfaced in the Azure Portal during sup
 * [Steps to download the pfx file from key vault](./Download%20certificate%20from%20Keyvault%20in%20PFX%20or%20PEM%20or%20CER%20format.md)
 * [Securing Application Endpoint (ie. DoS DDoS prevention)](./Securing%20Application%20Endpoint%20(ie.%20DoS%20DDoS%20prevention).md)
 * [How to mitigate SecurityApi_CertGetCertificateChain health warning (CTL accessibility issue or CRL slow/offline)](./SecurityApi_CertGetCertificateChain%20-%20CTL%20accessibility%20-%20CRL%20slow%20warnings.md)
+* [Mitigating CRL offline / slow certificate chain validation warnings with a private (internal) CA](./Mitigate%20CRL%20offline%20and%20slow%20chain%20validation%20warnings%20with%20a%20private%20CA.md)
