@@ -107,37 +107,46 @@ Another option is to use the Azure Portal's Resource Explorer with interactive G
     ]
 ```
 
-#### 5. Add **"certificateSecondary"** configuration in **"virtualMachineProfile / extensionProfile / extensions / settings"**
+#### 5. Add secondary certificate configuration to the ServiceFabricNode extension
+
+Locate the extension with publisher `Microsoft.Azure.ServiceFabric` and type `ServiceFabricNode`. Its settings are under `properties.virtualMachineProfile.extensionProfile.extensions[].properties.settings`. `extensionProfile` is a sibling of `osProfile`, not a child of it.
+
+The Windows ServiceFabricNode extension supports both certificate settings forms below. These are alternative representations of a dual-thumbprint configuration, not different extension types.
+
+**Which form should you use?** The [Microsoft Learn certificate rollover procedure](https://learn.microsoft.com/en-us/azure/service-fabric/service-fabric-cluster-security-update-certs-azure#add-a-secondary-certificate-using-azure-resource-manager) documents the separate `certificateSecondary` object. The nested `certificate.thumbprintSecondary` form is also supported and uses the primary certificate's `x509StoreName`. Preserve the form returned by GET and used by your deployment template; there is no need to convert a working configuration during a rollover. Use separate objects when the certificates require different stores. Do not change the publisher, extension type, or handler version just to change the certificate settings form.
+
+The following JSON examples contain only the certificate-related fields in `settings`. Merge the chosen example into the settings returned by GET, preserving `clusterEndpoint`, `nodeTypeRef`, and all unrelated configuration. Replace the sample thumbprints with your actual values.
+
+##### Option A: Separate certificate objects
 
 ```json
-"virtualMachineProfile": {
-  "osProfile": {
-    ...
-    "extensionProfile": {
-      "extensions": [
-        {
-          "properties": {
-            "autoUpgradeMinorVersion": true,
-            "settings": {
-                "clusterEndpoint": "https://westus.servicefabric.azure.com/runtime/clusters/d4556f3b-e496-4a46-9f20-3db88fecdf11",
-                "nodeTypeRef": "WordCount",
-                ...
-                "certificate": {
-                  "thumbprint": "16A2561C8C691B9C683DB1CA06842E7FA85F6726",
-                  "x509StoreName": "My"
-                },
-                "certificateSecondary": {
-                  "thumbprint": "8934E0494979684F2627EE382B5AD84A8FAD6823",
-                  "x509StoreName": "My"
-                }
-            },
-            "publisher": "Microsoft.Azure.ServiceFabric",
-            "type": "ServiceFabricNode",
-            "typeHandlerVersion": "1.0"
-            },
-            "name": "wordcount_ServiceFabricNode"
-        },
+{
+  "certificate": {
+    "thumbprint": "16A2561C8C691B9C683DB1CA06842E7FA85F6726",
+    "x509StoreName": "My"
+  },
+  "certificateSecondary": {
+    "thumbprint": "8934E0494979684F2627EE382B5AD84A8FAD6823",
+    "x509StoreName": "My"
+  }
+}
 ```
+
+##### Option B: Two thumbprints in one certificate object
+
+```json
+{
+  "certificate": {
+    "thumbprint": "16A2561C8C691B9C683DB1CA06842E7FA85F6726",
+    "thumbprintSecondary": "8934E0494979684F2627EE382B5AD84A8FAD6823",
+    "x509StoreName": "My"
+  }
+}
+```
+
+**Important:** Do not add the same secondary certificate in both forms. The extension processes these settings additively; `certificateSecondary` does not override `certificate.thumbprintSecondary`. Do not put `thumbprintSecondary` directly under `settings` or use `certificateSecondary.thumbprintSecondary` as another bootstrap certificate slot.
+
+Both forms still require the secondary certificate to be provisioned on every node (step 4) and allowed by the cluster's `properties.certificate.thumbprintSecondary` (step 11). Changing extension settings alone does not install the certificate or update cluster trust. Keep your deployment template consistent with the Resource Explorer changes so a later deployment does not restore the old settings.
 
 #### 6. Execute PATCH to update the Virtual Machine Scale Set
 
@@ -249,34 +258,35 @@ Another option is to use the Azure Portal's Resource Explorer with interactive G
 2. Click the **GET** button to retrieve the current configuration.
 3. Click the **EDIT** button to enable editing mode.
 
-#### 15. Swap the values of "certificate" and "certificateSecondary" properties in the Virtual Machine Scale Set resource
+#### 15. Swap the certificate thumbprints using the VMSS extension's existing settings form
+
+Update the certificate-related fields under the same extension `settings` path used in step 5. Preserve all unrelated settings. For separate objects, move each certificate's store name with its thumbprint if the stores differ.
+
+##### Option A: Separate certificate objects after the swap
 
 ```json
-"virtualMachineProfile": {
-      "osProfile": {
-        ...
-        "extensionProfile": {
-            "extensions": [
-            {
-                "properties": {
-                "autoUpgradeMinorVersion": true,
-                "settings": {
-                    ... swap thumbprints in the two certificate properties below
-                    "certificate": {
-                        "thumbprint": "8934E0494979684F2627EE382B5AD84A8FAD6823",
-                        "x509StoreName": "My"
-                    },
-                    "certificateSecondary": {
-                        "thumbprint": "16A2561C8C691B9C683DB1CA06842E7FA85F6726",
-                        "x509StoreName": "My"
-                    }
-                },
-                "publisher": "Microsoft.Azure.ServiceFabric",
-                "type": "ServiceFabricNode",
-                "typeHandlerVersion": "1.0"
-                },
-            "name": "wordcount_ServiceFabricNode"
-        },
+{
+  "certificate": {
+    "thumbprint": "8934E0494979684F2627EE382B5AD84A8FAD6823",
+    "x509StoreName": "My"
+  },
+  "certificateSecondary": {
+    "thumbprint": "16A2561C8C691B9C683DB1CA06842E7FA85F6726",
+    "x509StoreName": "My"
+  }
+}
+```
+
+##### Option B: Two thumbprints in one certificate object after the swap
+
+```json
+{
+  "certificate": {
+    "thumbprint": "8934E0494979684F2627EE382B5AD84A8FAD6823",
+    "thumbprintSecondary": "16A2561C8C691B9C683DB1CA06842E7FA85F6726",
+    "x509StoreName": "My"
+  }
+}
 ```
 
 #### 16. Execute PATCH to update the Virtual Machine Scale Set with swapped certificates
@@ -349,8 +359,19 @@ After confirming the new primary is working and the old secondary is unused:
 > **Application dependency check:** Verify that no applications are still using or referencing the old secondary certificate, including application TLS endpoints and client authentication. If any application depends on it, migrate that application to the replacement certificate and verify it works before removing the old secondary configuration.
 
 1. **Verify readiness:** Confirm the new certificate is installed on every node, the swap is complete, and the cluster, nodes, and applications are healthy.
-2. **Update every VMSS:** Remove the old `certificateSecondary` setting from the ServiceFabricNode extension, preserving the new primary. Wait for rollout completion across every node type before continuing.
+2. **Update every VMSS:** For separate objects, remove the old `settings.certificateSecondary` object from the ServiceFabricNode extension. For the nested form, remove the old `settings.certificate.thumbprintSecondary` property. Preserve the new `settings.certificate.thumbprint`, its store name, and all unrelated settings. If both forms are already present, check both locations and remove every reference to the old secondary certificate; removing only one can leave the extension configured to load it. Wait for rollout completion across every node type before continuing.
 3. **Update the cluster:** Remove `properties.certificate.thumbprintSecondary`, preserving the new primary and all unrelated configuration. Wait for the configuration upgrade to complete and verify cluster health.
+
+After removing the old secondary configuration, the certificate-related extension settings should contain only the new primary, regardless of which form was used:
+
+```json
+{
+  "certificate": {
+    "thumbprint": "8934E0494979684F2627EE382B5AD84A8FAD6823",
+    "x509StoreName": "My"
+  }
+}
+```
 
 These steps remove the old secondary configuration only. They do not remove `vaultCertificates` provisioning references, guest certificates, Key Vault objects, or client-certificate entries.
 
