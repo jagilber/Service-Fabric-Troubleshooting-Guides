@@ -359,10 +359,12 @@ After confirming the new primary is working and the old secondary is unused:
 > **Application dependency check:** Verify that no applications are still using or referencing the old secondary certificate, including application TLS endpoints and client authentication. If any application depends on it, migrate that application to the replacement certificate and verify it works before removing the old secondary configuration.
 
 1. **Verify readiness:** Confirm the new certificate is installed on every node, the swap is complete, and the cluster, nodes, and applications are healthy.
-2. **Update every VMSS:** For separate objects, remove the old `settings.certificateSecondary` object from the ServiceFabricNode extension. For the nested form, remove the old `settings.certificate.thumbprintSecondary` property. Preserve the new `settings.certificate.thumbprint`, its store name, and all unrelated settings. If both forms are already present, check both locations and remove every reference to the old secondary certificate; removing only one can leave the extension configured to load it. Wait for rollout completion across every node type before continuing.
-3. **Update the cluster:** Remove `properties.certificate.thumbprintSecondary`, preserving the new primary and all unrelated configuration. Wait for the configuration upgrade to complete and verify cluster health.
+2. **Update every VMSS:** For separate objects, delete the entire `settings.certificateSecondary` JSON entry: both the property name and its object value, including the old thumbprint and store name. For the nested form, delete the entire `settings.certificate.thumbprintSecondary` property and its value. Preserve the new `settings.certificate.thumbprint`, its store name, and all unrelated settings. If both forms are already present, check both locations and delete every entry referencing the old secondary certificate; deleting only one can leave the extension configured to load it. Wait for rollout completion across every node type before continuing.
+3. **Update the cluster:** Delete the entire `properties.certificate.thumbprintSecondary` property and its value, preserving the new primary and all unrelated configuration. Wait for the configuration upgrade to complete and verify cluster health.
 
-After removing the old secondary configuration, the certificate-related extension settings should contain only the new primary, regardless of which form was used:
+> **Delete the entry, not just its contents:** Do not leave `"thumbprintSecondary": ""`, `"thumbprintSecondary": null`, `"certificateSecondary": {}`, or `"certificateSecondary": null`. The secondary property name and its value must both be absent from the updated JSON. Adjust adjacent commas so the JSON remains valid, and perform a GET after the update to confirm the secondary entries are absent from the saved configuration.
+
+After removing the old secondary configuration, the certificate-related fields in the VMSS extension's `settings` and the cluster's `properties` should contain only the new primary, with no secondary property:
 
 ```json
 {
