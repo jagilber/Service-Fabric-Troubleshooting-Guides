@@ -342,7 +342,17 @@ Another option is to use the Azure Portal's Resource Explorer with interactive G
 
 ![Portal -> Cluster -> Security](../media/resourcemgr9.png)
 
-### NOTE: Best practice is to use same sequence of steps above to remove secondary certificate configuration when certificate is expired or no longer needed
+## Remove the old secondary certificate after the swap
+
+After confirming the new primary is working and the old secondary is unused:
+
+> **Application dependency check:** Verify that no applications are still using or referencing the old secondary certificate, including application TLS endpoints and client authentication. If any application depends on it, migrate that application to the replacement certificate and verify it works before removing the old secondary configuration.
+
+1. **Verify readiness:** Confirm the new certificate is installed on every node, the swap is complete, and the cluster, nodes, and applications are healthy.
+2. **Update every VMSS:** Remove the old `certificateSecondary` setting from the ServiceFabricNode extension, preserving the new primary. Wait for rollout completion across every node type before continuing.
+3. **Update the cluster:** Remove `properties.certificate.thumbprintSecondary`, preserving the new primary and all unrelated configuration. Wait for the configuration upgrade to complete and verify cluster health.
+
+These steps remove the old secondary configuration only. They do not remove `vaultCertificates` provisioning references, guest certificates, Key Vault objects, or client-certificate entries.
 
 ## Troubleshooting
 
