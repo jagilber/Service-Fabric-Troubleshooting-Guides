@@ -140,10 +140,17 @@ The resource URI format is as follows:
    ![ARM API Get Request](../media/managing-azure-resources/arm-api-servicefabric-cluster.png)
 3. The **Response** section will display the current configuration of the resource in JSON format. Copy this response body to use as the basis for your modifications.
 4. Switch to the **Request body** tab, paste the copied JSON, and make your desired modifications to the configuration.
-5. Change the HTTP method to **PUT** and click **Execute** to submit the updated configuration. Example showing a VMSS update:
+5. Switch to the **Request headers** tab. Before sending a **PUT** or **PATCH** request with a JSON body, explicitly add or update the header with **Name** `Content-Type` and **Value** `application/json`. Finish editing the header row before clicking **Execute**, and ensure there is only one `Content-Type` entry. Do not rely on API Playground to select the request body's media type automatically.
+6. Change the HTTP method to **PUT** and click **Execute** to submit the updated configuration. Example showing a VMSS update:
 
    ![ARM API Put Request](../media/managing-azure-resources/arm-api-put-vmss-nodetype0.png)
-6. The **Response** section will show the result of the operation. Verify the status code is `200 OK` and the `provisioningState` is `Updating` or `Succeeded`. You can monitor the provisioning status in the [Azure Portal](https://portal.azure.com/) or by performing additional GET requests from [ARM API Playground](https://portal.azure.com/#view/Microsoft_Azure_Resources/ResourceManagerBlade/~/armapiplayground).
+7. The **Response** section will show the result of the operation. Verify the status code is `200 OK` and the `provisioningState` is `Updating` or `Succeeded`. You can monitor the provisioning status in the [Azure Portal](https://portal.azure.com/) or by performing additional GET requests from [ARM API Playground](https://portal.azure.com/#view/Microsoft_Azure_Resources/ResourceManagerBlade/~/armapiplayground).
+
+#### Troubleshooting HTTP 415 UnsupportedMediaType
+
+If a PUT or PATCH request returns `415 UnsupportedMediaType` with a message such as `The content media type 'text/plain' is not supported. Only 'application/json' is supported.`, the rejected request used an unsupported request-body media type. Set `Content-Type: application/json` in **Request headers** and resend the request. Setting `Accept: application/json` does not replace `Content-Type`; `Accept` describes the desired response format, not the request body's format.
+
+If the header row already shows `application/json`, finish editing it and execute a new request; the displayed error may be from an earlier request. If the error persists, inspect the new outgoing request in the browser's developer tools **Network** tab to verify its effective `Content-Type` and check for duplicate header entries. Do not share authorization tokens or an unredacted network capture.
 
 ## Azure PowerShell
 
